@@ -8,7 +8,21 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.1" />
-    <PackageReference Include="Tesseract" Version="5.2.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
+    <PackageReference Include="Tesseract" Version="5.2.0">
+      <ExcludeAssets>native</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <Target Name="link_deps" AfterTargets="AfterBuild">
+    <Exec Command="ln -sf /opt/homebrew/lib/libleptonica.dylib $(OutDir)x64/libleptonica-1.82.0.dylib" />
+    <Exec Command="ln -sf /opt/homebrew/lib/libtesseract.dylib $(OutDir)x64/libtesseract50.dylib" />
+  </Target>
+
+  <ItemGroup>
+    <!-- Exclude native libraries that come with Tesseract package -->
+    <None Remove="x64\**" />
+    <None Remove="x86\**" />
   </ItemGroup>
 
 </Project>

@@ -14,6 +14,8 @@ public class InvoiceController : ControllerBase
     [HttpPost("upload")]
     public async Task<IActionResult> UploadInvoice([FromForm] IFormFile file)
     {
+        Console.WriteLine("Uploading invoice...");
+
         if (file == null || file.Length == 0)
             return BadRequest("No file uploaded.");
 

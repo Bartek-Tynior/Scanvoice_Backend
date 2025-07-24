@@ -4,7 +4,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 // builder.Services.AddSwaggerGen();
-// builder.Services.AddScoped<IOcrService, OcrService>();
+builder.Services.AddScoped<IOcrService, OcrService>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

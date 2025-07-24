@@ -34,6 +34,22 @@
           }
         }
       },
+      "SixLabors.ImageSharp/3.1.10": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/SixLabors.ImageSharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/SixLabors.ImageSharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "build/SixLabors.ImageSharp.props": {}
+        }
+      },
       "System.Reflection.Emit/4.7.0": {
         "type": "package",
         "compile": {
@@ -94,6 +110,22 @@
         "lib/netstandard2.0/Microsoft.OpenApi.xml",
         "microsoft.openapi.1.6.17.nupkg.sha512",
         "microsoft.openapi.nuspec"
+      ]
+    },
+    "SixLabors.ImageSharp/3.1.10": {
+      "sha512": "R1HEPcqx3v+kvlOTPouP0g/Nzzud9pHtjlgGbFax3Ivaz8kkaGfS2EPfyDGpmfoTUQ3nQ5wxdhYyYa9fwYA9cw==",
+      "type": "package",
+      "path": "sixlabors.imagesharp/3.1.10",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE",
+        "build/SixLabors.ImageSharp.props",
+        "lib/net6.0/SixLabors.ImageSharp.dll",
+        "lib/net6.0/SixLabors.ImageSharp.xml",
+        "sixlabors.imagesharp.128.png",
+        "sixlabors.imagesharp.3.1.10.nupkg.sha512",
+        "sixlabors.imagesharp.nuspec"
       ]
     },
     "System.Reflection.Emit/4.7.0": {
@@ -174,6 +206,7 @@
   "projectFileDependencyGroups": {
     "net9.0": [
       "Microsoft.AspNetCore.OpenApi >= 9.0.1",
+      "SixLabors.ImageSharp >= 3.1.10",
       "Tesseract >= 5.2.0"
     ]
   },
@@ -224,7 +257,12 @@
             "target": "Package",
             "version": "[9.0.1, )"
           },
+          "SixLabors.ImageSharp": {
+            "target": "Package",
+            "version": "[3.1.10, )"
+          },
           "Tesseract": {
+            "include": "Runtime, Compile, Build, ContentFiles, Analyzers, BuildTransitive",
             "target": "Package",
             "version": "[5.2.0, )"
           }
