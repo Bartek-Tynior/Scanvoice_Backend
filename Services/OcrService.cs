@@ -294,23 +294,16 @@ public class OcrService : IOcrService
         data.Financial = new FinancialInfo();
         data.Payment = new PaymentInfo();
 
-        // Extract basic invoice information
-        ExtractBasicInvoiceInfo(data, text, lines);
+        // Analyze invoice structure and identify sections
+        var sections = AnalyzeInvoiceStructure(lines);
 
-        // Extract vendor information
-        ExtractVendorInfo(data, text, lines);
-
-        // Extract customer information
-        ExtractCustomerInfo(data, text, lines);
-
-        // Extract financial information
-        ExtractFinancialInfo(data, text, lines);
-
-        // Extract payment information
-        ExtractPaymentInfo(data, text, lines);
-
-        // Extract line items
-        ExtractLineItems(data, text, lines);
+        // Extract information using context-aware parsing
+        ExtractBasicInvoiceInfoContextual(data, text, lines, sections);
+        ExtractVendorInfoContextual(data, text, lines, sections);
+        ExtractCustomerInfoContextual(data, text, lines, sections);
+        ExtractFinancialInfoContextual(data, text, lines, sections);
+        ExtractPaymentInfoContextual(data, text, lines, sections);
+        ExtractLineItemsContextual(data, text, lines, sections);
 
         // Detect language and currency
         DetectLanguageAndCurrency(data, text);
@@ -318,6 +311,528 @@ public class OcrService : IOcrService
         Console.WriteLine($"Extracted invoice data: {JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true })}");
 
         return data;
+    }
+
+    private Dictionary<string, List<int>> AnalyzeInvoiceStructure(List<string> lines)
+    {
+        var sections = new Dictionary<string, List<int>>
+        {
+            ["header"] = new List<int>(),
+            ["vendor"] = new List<int>(),
+            ["customer"] = new List<int>(),
+            ["invoice_meta"] = new List<int>(),
+            ["line_items"] = new List<int>(),
+            ["totals"] = new List<int>(),
+            ["payment"] = new List<int>()
+        };
+
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i].ToLower();
+
+            // Header indicators (usually top 20% of invoice)
+            if (i < lines.Count * 0.2)
+            {
+                sections["header"].Add(i);
+            }
+
+            // Vendor section indicators
+            if (Regex.IsMatch(line, @"(?i)\b(b\.?v\.?|ltd|inc|corp|gmbh|your\s+company|lorem\s+ipsum)\b") ||
+                line.Contains("@") || line.Contains("www.") ||
+                Regex.IsMatch(line, @"(?i)btw\s*nummer|vat\s*number|kvk") ||
+                Regex.IsMatch(line, @"(?i)telefoon|phone|tel:"))
+            {
+                sections["vendor"].Add(i);
+            }
+
+            // Customer section indicators  
+            if (Regex.IsMatch(line, @"(?i)klantnummer|customer\s*number|client|bill\s*to") ||
+                Regex.IsMatch(line, @"(?i)factuur\s*aan|invoice\s*to"))
+            {
+                sections["customer"].Add(i);
+            }
+
+            // Invoice metadata
+            if (Regex.IsMatch(line, @"(?i)factuurnummer|invoice\s*number|factuur\s*datum|invoice\s*date") ||
+                Regex.IsMatch(line, @"(?i)vervaldatum|due\s*date") ||
+                Regex.IsMatch(line, @"\b\d{6}\b|\b\d{4}-\d+\b") || // Invoice numbers
+                Regex.IsMatch(line, @"\b\d{1,2}[-/.]\d{1,2}[-/.]\d{4}\b")) // Dates
+            {
+                sections["invoice_meta"].Add(i);
+            }
+
+            // Line items section
+            if (Regex.IsMatch(line, @"(?i)naam.*beschrijving|description|omschrijving|artikel|product") ||
+                Regex.IsMatch(line, @"(?i)hoeveelheid|quantity|aantal|prijs|price") ||
+                Regex.IsMatch(line, @"(?i)demo\s*product|product\s*nummer") ||
+                (Regex.IsMatch(line, @"\d+[.,]\d{2}") && Regex.IsMatch(line, @"\d+\s*%"))) // Price with percentage
+            {
+                sections["line_items"].Add(i);
+            }
+
+            // Totals section
+            if (Regex.IsMatch(line, @"(?i)totaal.*excl|subtotal|total.*excl.*btw") ||
+                Regex.IsMatch(line, @"(?i)btw\s*\d+\s*%|vat\s*\d+\s*%") ||
+                Regex.IsMatch(line, @"(?i)totaal.*incl|total.*incl|totaalbedrag") ||
+                line.Contains("€") && Regex.IsMatch(line, @"\d+[.,]\d{2}"))
+            {
+                sections["totals"].Add(i);
+            }
+
+            // Payment section
+            if (Regex.IsMatch(line, @"(?i)verzoeken.*betalen|pay.*within|binnen.*dagen") ||
+                Regex.IsMatch(line, @"(?i)bankrekening|iban|account") ||
+                Regex.IsMatch(line, @"(?i)smith\s*consulting") || // Company in footer
+                Regex.IsMatch(line, @"\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7}[A-Z0-9]{0,16}\b")) // IBAN pattern
+            {
+                sections["payment"].Add(i);
+            }
+        }
+
+        return sections;
+    }
+
+    private void ExtractBasicInvoiceInfoContextual(InvoiceData data, string text, List<string> lines, Dictionary<string, List<int>> sections)
+    {
+        // Look for invoice number in invoice metadata sections first
+        var metaLines = sections["invoice_meta"].Concat(sections["header"]).Distinct().OrderBy(x => x);
+
+        foreach (var lineIndex in metaLines)
+        {
+            if (lineIndex >= lines.Count) continue;
+            var line = lines[lineIndex];
+
+            // Invoice number patterns
+            var invoicePatterns = new[]
+            {
+                @"(?i)factuurnummer\s*[:\-]?\s*([A-Z0-9\-_]+)",
+                @"(?i)invoice\s*(?:number|nr)\s*[:\-]?\s*([A-Z0-9\-_]+)",
+                @"^(\d{6})$", // Standalone 6-digit number like "202063"
+                @"^([A-Z]\d{4,})$" // Pattern like "F2020-001"
+            };
+
+            foreach (var pattern in invoicePatterns)
+            {
+                var match = Regex.Match(line, pattern, RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    var invoiceNum = match.Groups[1].Value.Trim();
+                    if (invoiceNum.Length >= 3 && !invoiceNum.Equals("Factuurnummer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        data.InvoiceNumber = invoiceNum;
+                        break;
+                    }
+                }
+            }
+            if (!string.IsNullOrEmpty(data.InvoiceNumber)) break;
+        }
+
+        // Look for dates in metadata sections
+        foreach (var lineIndex in metaLines)
+        {
+            if (lineIndex >= lines.Count) continue;
+            var line = lines[lineIndex];
+
+            // Date patterns
+            var datePatterns = new[]
+            {
+                @"(?i)factuurdatum\s*[:\-]?\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})",
+                @"(?i)invoice\s*date\s*[:\-]?\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})",
+                @"^(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})$" // Standalone date
+            };
+
+            foreach (var pattern in datePatterns)
+            {
+                var match = Regex.Match(line, pattern, RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    data.InvoiceDate = match.Groups[1].Value.Trim();
+                    break;
+                }
+            }
+            if (!string.IsNullOrEmpty(data.InvoiceDate)) break;
+        }
+
+        // Look for due date
+        var dueDateMatch = Regex.Match(text, @"(?i)vervaldatum\s*[:\-]?\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})", RegexOptions.IgnoreCase);
+        if (dueDateMatch.Success)
+        {
+            data.DueDate = dueDateMatch.Groups[1].Value.Trim();
+        }
+    }
+
+    private void ExtractVendorInfoContextual(InvoiceData data, string text, List<string> lines, Dictionary<string, List<int>> sections)
+    {
+        data.Vendor ??= new VendorInfo();
+        data.Vendor.Address ??= new AddressInfo();
+
+        // Get vendor-related lines (header + vendor sections)
+        var vendorLines = sections["header"].Concat(sections["vendor"]).Distinct().OrderBy(x => x).Take(10);
+
+        // Score-based company name detection
+        string? bestCompanyName = null;
+        int bestScore = 0;
+
+        foreach (var lineIndex in vendorLines)
+        {
+            if (lineIndex >= lines.Count) continue;
+            var line = lines[lineIndex].Trim();
+
+            // Skip obvious non-company lines
+            if (line.Length < 3 ||
+                Regex.IsMatch(line, @"(?i)factuur|invoice|datum|telefoon|email|website|btw|vat") ||
+                Regex.IsMatch(line, @"^\d+$|^\d{4}\s*[A-Z]{2}$") ||
+                line.Contains("€"))
+                continue;
+
+            int score = 0;
+
+            // Company indicators
+            if (Regex.IsMatch(line, @"(?i)\b(B\.?V\.?|BV|Ltd|Inc|Demo|Lorem\s+Ipsum)\b")) score += 15;
+            if (line.Length >= 5 && line.Length <= 40) score += 5;
+            if (Regex.IsMatch(line, @"^[A-Z][A-Za-z\s&\.\-]+$")) score += 8; // Proper case
+            if (lineIndex < 5) score += 3; // Early in document
+            if (!Regex.IsMatch(line, @"(?i)straat|weg|laan|gracht|plein|\d{4}")) score += 3; // Not address
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestCompanyName = line;
+            }
+        }
+
+        if (bestCompanyName != null)
+        {
+            data.Vendor.CompanyName = bestCompanyName.Trim();
+        }
+
+        // Extract contact information from vendor sections
+        var vendorSectionText = string.Join(" ", vendorLines.Where(i => i < lines.Count).Select(i => lines[i]));
+
+        // VAT number
+        var vatMatch = Regex.Match(text, @"(?i)btw\s*nummer\s*[:\-]?\s*([A-Z]{2}\d{6,})", RegexOptions.IgnoreCase);
+        if (vatMatch.Success)
+        {
+            data.Vendor.VatNumber = vatMatch.Groups[1].Value.Trim();
+        }
+
+        // Email
+        var emailMatch = Regex.Match(vendorSectionText, @"\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b");
+        if (emailMatch.Success)
+        {
+            data.Vendor.Email = emailMatch.Groups[1].Value;
+        }
+
+        // Phone
+        var phoneMatch = Regex.Match(vendorSectionText, @"(?i)(?:tel|telefoon|phone)\s*[:\-]?\s*([\+\d\s\-\(\)]{8,})");
+        if (phoneMatch.Success)
+        {
+            data.Vendor.Phone = phoneMatch.Groups[1].Value.Trim();
+        }
+
+        // Website
+        var websiteMatch = Regex.Match(vendorSectionText, @"\b(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b");
+        if (websiteMatch.Success && !websiteMatch.Groups[1].Value.Contains("@"))
+        {
+            data.Vendor.Website = websiteMatch.Groups[1].Value;
+        }
+
+        // Address information
+        foreach (var lineIndex in vendorLines)
+        {
+            if (lineIndex >= lines.Count) continue;
+            var line = lines[lineIndex];
+
+            // Postal code + city
+            var addressMatch = Regex.Match(line, @"(\d{4})\s*([A-Z]{2})\s+([A-Za-z\s]+)");
+            if (addressMatch.Success)
+            {
+                data.Vendor.Address.PostalCode = addressMatch.Groups[1].Value + addressMatch.Groups[2].Value;
+                data.Vendor.Address.City = addressMatch.Groups[3].Value.Trim();
+            }
+
+            // Street address
+            if (Regex.IsMatch(line, @"(?i)(straat|weg|laan|gracht)\s+\d+") ||
+                Regex.IsMatch(line, @"^[A-Za-z\s]+(straat|weg|laan|gracht|plein)\s*\d*$"))
+            {
+                data.Vendor.Address.Street = line.Trim();
+            }
+        }
+    }
+
+    private void ExtractCustomerInfoContextual(InvoiceData data, string text, List<string> lines, Dictionary<string, List<int>> sections)
+    {
+        data.Customer ??= new CustomerInfo();
+        data.Customer.Address ??= new AddressInfo();
+
+        // Extract customer number from customer sections
+        var customerLines = sections["customer"].Concat(sections["invoice_meta"]).Distinct();
+
+        foreach (var lineIndex in customerLines)
+        {
+            if (lineIndex >= lines.Count) continue;
+            var line = lines[lineIndex];
+
+            var customerNumMatch = Regex.Match(line, @"(?i)klantnummer\s*[:\-]?\s*([A-Z0-9]+)", RegexOptions.IgnoreCase);
+            if (customerNumMatch.Success)
+            {
+                var customerNum = customerNumMatch.Groups[1].Value.Trim();
+                if (customerNum.Length > 1)
+                {
+                    data.Customer.CustomerNumber = customerNum;
+                    break;
+                }
+            }
+        }
+
+        // For customer company name, look in the middle section (after vendor, before line items)
+        var middleStart = sections["vendor"].Any() ? sections["vendor"].Max() + 1 : 5;
+        var middleEnd = sections["line_items"].Any() ? sections["line_items"].Min() - 1 : lines.Count / 2;
+
+        for (int i = middleStart; i <= Math.Min(middleEnd, lines.Count - 1); i++)
+        {
+            var line = lines[i].Trim();
+
+            // Skip obvious non-customer lines
+            if (Regex.IsMatch(line, @"(?i)factuur|invoice|datum|nummer|prijs|totaal|omschrijving|description"))
+                continue;
+
+            // Look for company-like names
+            if (Regex.IsMatch(line, @"^[A-Z][A-Za-z\s&\.\-]{5,}$") &&
+                !Regex.IsMatch(line, @"(?i)nederland|amsterdam|telefoon|email|website"))
+            {
+                data.Customer.CompanyName = line.Trim();
+                break;
+            }
+        }
+    }
+
+    private void ExtractFinancialInfoContextual(InvoiceData data, string text, List<string> lines, Dictionary<string, List<int>> sections)
+    {
+        data.Financial ??= new FinancialInfo();
+
+        // Focus on totals section for financial information
+        var totalLines = sections["totals"].Concat(sections["line_items"]).Distinct().OrderBy(x => x);
+
+        foreach (var lineIndex in totalLines)
+        {
+            if (lineIndex >= lines.Count) continue;
+            var line = lines[lineIndex];
+
+            // Extract subtotal (excl BTW)
+            if (Regex.IsMatch(line, @"(?i)totaal.*excl.*btw|subtotal|totaalbedrag.*excl", RegexOptions.IgnoreCase))
+            {
+                var amountMatch = Regex.Match(line, @"€\s*(\d{1,6}[.,]\d{2})");
+                if (amountMatch.Success && decimal.TryParse(amountMatch.Groups[1].Value.Replace(',', '.'), out decimal amount))
+                {
+                    data.Financial.SubTotal = amount;
+                }
+            }
+
+            // Extract VAT amount and rate
+            if (Regex.IsMatch(line, @"(?i)btw\s*(\d+)\s*%", RegexOptions.IgnoreCase))
+            {
+                var vatMatch = Regex.Match(line, @"(?i)btw\s*(\d+)\s*%.*€\s*(\d{1,6}[.,]\d{2})");
+                if (vatMatch.Success)
+                {
+                    if (decimal.TryParse(vatMatch.Groups[1].Value, out decimal rate))
+                        data.Financial.TaxRate = rate;
+
+                    if (decimal.TryParse(vatMatch.Groups[2].Value.Replace(',', '.'), out decimal vatAmount))
+                        data.Financial.TaxAmount = vatAmount;
+                }
+            }
+
+            // Extract total (incl BTW)
+            if (Regex.IsMatch(line, @"(?i)totaal.*incl.*btw|totaalbedrag.*incl", RegexOptions.IgnoreCase))
+            {
+                var amountMatch = Regex.Match(line, @"€\s*(\d{1,6}[.,]\d{2})");
+                if (amountMatch.Success && decimal.TryParse(amountMatch.Groups[1].Value.Replace(',', '.'), out decimal amount))
+                {
+                    data.Financial.TotalAmount = amount;
+                }
+            }
+        }
+
+        // If we have subtotal and VAT, calculate total
+        if (data.Financial.SubTotal.HasValue && data.Financial.TaxAmount.HasValue && !data.Financial.TotalAmount.HasValue)
+        {
+            data.Financial.TotalAmount = data.Financial.SubTotal.Value + data.Financial.TaxAmount.Value;
+        }
+
+        // If we have total but no subtotal, calculate it (assuming 21% VAT if no rate specified)
+        if (data.Financial.TotalAmount.HasValue && !data.Financial.SubTotal.HasValue)
+        {
+            var vatRate = data.Financial.TaxRate ?? 21m;
+            data.Financial.SubTotal = Math.Round(data.Financial.TotalAmount.Value / (1 + vatRate / 100), 2);
+            data.Financial.TaxAmount = data.Financial.TotalAmount.Value - data.Financial.SubTotal.Value;
+            if (!data.Financial.TaxRate.HasValue)
+                data.Financial.TaxRate = vatRate;
+        }
+    }
+
+    private void ExtractLineItemsContextual(InvoiceData data, string text, List<string> lines, Dictionary<string, List<int>> sections)
+    {
+        data.LineItems ??= new List<InvoiceLineItem>();
+
+        if (!sections["line_items"].Any()) return;
+
+        var lineItemsSection = sections["line_items"].OrderBy(x => x).ToList();
+        var startIndex = lineItemsSection.First();
+        var endIndex = sections["totals"].Any() ? sections["totals"].Min() : lineItemsSection.Last() + 5;
+
+        // Look for table header to understand structure
+        var headerFound = false;
+        var hasQuantityColumn = false;
+        var hasPriceColumn = false;
+
+        for (int i = startIndex; i < Math.Min(endIndex, lines.Count); i++)
+        {
+            var line = lines[i].ToLower();
+
+            // Identify table structure
+            if (!headerFound && (line.Contains("omschrijving") || line.Contains("description")))
+            {
+                headerFound = true;
+                hasQuantityColumn = line.Contains("aantal") || line.Contains("hoeveelheid") || line.Contains("quantity");
+                hasPriceColumn = line.Contains("prijs") || line.Contains("price");
+                continue;
+            }
+
+            if (!headerFound) continue;
+
+            // Skip totals lines
+            if (Regex.IsMatch(line, @"(?i)totaal|subtotal|btw|vat"))
+                break;
+
+            var originalLine = lines[i];
+
+            // Pattern 1: Line with "Demo Product nummer X"
+            var productMatch = Regex.Match(originalLine, @"Demo\s+Product\s+nummer\s+(\d+)");
+            if (productMatch.Success)
+            {
+                var lineItem = new InvoiceLineItem
+                {
+                    Description = originalLine.Trim()
+                };
+
+                // Look for quantity, price, and total in the same line or next lines
+                ExtractItemPricing(lineItem, originalLine, lines, i);
+
+                if (lineItem.UnitPrice.HasValue || lineItem.LineTotal.HasValue)
+                {
+                    data.LineItems.Add(lineItem);
+                }
+            }
+            // Pattern 2: Any line that looks like an item (has text and numbers)
+            else if (Regex.IsMatch(originalLine, @"[A-Za-z]{3,}") &&
+                     Regex.IsMatch(originalLine, @"\d+[.,]\d{2}") &&
+                     !Regex.IsMatch(originalLine, @"(?i)totaal|subtotal|btw"))
+            {
+                var lineItem = new InvoiceLineItem
+                {
+                    Description = ExtractDescriptionFromLine(originalLine)
+                };
+
+                ExtractItemPricing(lineItem, originalLine, lines, i);
+
+                if (!string.IsNullOrEmpty(lineItem.Description) && lineItem.Description.Length > 3)
+                {
+                    data.LineItems.Add(lineItem);
+                }
+            }
+        }
+    }
+
+    private void ExtractItemPricing(InvoiceLineItem lineItem, string currentLine, List<string> lines, int currentIndex)
+    {
+        // Try to extract from current line first
+        var prices = Regex.Matches(currentLine, @"(\d+[.,]\d{2})").Cast<Match>().Select(m => m.Value).ToList();
+        var quantities = Regex.Matches(currentLine, @"\b(\d+(?:[.,]\d+)?)\b").Cast<Match>().Select(m => m.Value).Where(v => !v.Contains(".") || v.EndsWith(".00")).ToList();
+
+        if (prices.Count >= 2)
+        {
+            // Multiple prices likely means: unit price, total
+            if (decimal.TryParse(prices[0].Replace(',', '.'), out decimal unitPrice))
+                lineItem.UnitPrice = unitPrice;
+            if (decimal.TryParse(prices[^1].Replace(',', '.'), out decimal total))
+                lineItem.LineTotal = total;
+        }
+        else if (prices.Count == 1)
+        {
+            // Single price - could be unit price or total
+            if (decimal.TryParse(prices[0].Replace(',', '.'), out decimal price))
+                lineItem.LineTotal = price;
+        }
+
+        // Extract quantity
+        if (quantities.Any())
+        {
+            var firstQuantity = quantities.FirstOrDefault(q => decimal.TryParse(q.Replace(',', '.'), out decimal qty) && qty > 0 && qty <= 1000);
+            if (firstQuantity != null && decimal.TryParse(firstQuantity.Replace(',', '.'), out decimal quantity))
+            {
+                lineItem.Quantity = quantity;
+            }
+        }
+
+        // Calculate missing values
+        if (lineItem.Quantity.HasValue && lineItem.LineTotal.HasValue && !lineItem.UnitPrice.HasValue)
+        {
+            lineItem.UnitPrice = lineItem.LineTotal.Value / lineItem.Quantity.Value;
+        }
+        else if (lineItem.UnitPrice.HasValue && lineItem.Quantity.HasValue && !lineItem.LineTotal.HasValue)
+        {
+            lineItem.LineTotal = lineItem.UnitPrice.Value * lineItem.Quantity.Value;
+        }
+        else if (!lineItem.Quantity.HasValue && lineItem.UnitPrice.HasValue && lineItem.LineTotal.HasValue)
+        {
+            lineItem.Quantity = lineItem.LineTotal.Value / lineItem.UnitPrice.Value;
+        }
+
+        // Default quantity to 1 if not found
+        if (!lineItem.Quantity.HasValue)
+        {
+            lineItem.Quantity = 1;
+        }
+    }
+
+    private string ExtractDescriptionFromLine(string line)
+    {
+        // Remove prices and quantities to get just the description
+        var description = Regex.Replace(line, @"€\s*\d+[.,]\d{2}", "").Trim();
+        description = Regex.Replace(description, @"\b\d+[.,]\d{2}\b", "").Trim();
+        description = Regex.Replace(description, @"\b\d+\s*%\b", "").Trim();
+        description = Regex.Replace(description, @"\s+", " ").Trim();
+
+        return description;
+    }
+
+    private void ExtractPaymentInfoContextual(InvoiceData data, string text, List<string> lines, Dictionary<string, List<int>> sections)
+    {
+        data.Payment ??= new PaymentInfo();
+
+        // Extract payment terms from payment section
+        var paymentText = string.Join(" ", sections["payment"].Where(i => i < lines.Count).Select(i => lines[i]));
+
+        var paymentTermsMatch = Regex.Match(paymentText, @"(?i)binnen\s*(\d+)\s*dagen|pay.*within\s*(\d+)\s*days", RegexOptions.IgnoreCase);
+        if (paymentTermsMatch.Success)
+        {
+            var days = paymentTermsMatch.Groups[1].Success ? paymentTermsMatch.Groups[1].Value : paymentTermsMatch.Groups[2].Value;
+            data.Payment.PaymentTerms = $"{days} dagen";
+        }
+
+        // Extract IBAN
+        var ibanMatch = Regex.Match(text, @"\b([A-Z]{2}\d{2}[A-Z0-9]{4}\d{7}[A-Z0-9]{0,16})\b");
+        if (ibanMatch.Success)
+        {
+            data.Payment.IBAN = ibanMatch.Groups[1].Value;
+            // Also set vendor IBAN if not already set
+            if (string.IsNullOrEmpty(data.Vendor?.IBAN))
+            {
+                data.Vendor ??= new VendorInfo();
+                data.Vendor.IBAN = ibanMatch.Groups[1].Value;
+            }
+        }
     }
 
     private void ExtractBasicInvoiceInfo(InvoiceData data, string text, List<string> lines)

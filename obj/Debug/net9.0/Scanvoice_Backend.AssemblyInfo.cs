@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Scanvoice_Backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+81f73e112dac3f6e0a597577d7735c49eac35fd5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7f81bd5d0dad6dd5eef82592b66b2889ff645d30")]
 [assembly: System.Reflection.AssemblyProductAttribute("Scanvoice_Backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Scanvoice_Backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
