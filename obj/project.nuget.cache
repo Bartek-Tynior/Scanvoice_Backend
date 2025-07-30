@@ -1,12 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "kZeLYzf5x3Y=",
+  "dgSpecHash": "0E7gyaSJmVA=",
   "success": true,
   "projectFilePath": "/Users/barttynior/Desktop/PROJECTS/Scanvoice_Backend/Scanvoice_Backend.csproj",
   "expectedPackageFiles": [
     "/Users/barttynior/.nuget/packages/microsoft.aspnetcore.openapi/9.0.1/microsoft.aspnetcore.openapi.9.0.1.nupkg.sha512",
     "/Users/barttynior/.nuget/packages/microsoft.openapi/1.6.17/microsoft.openapi.1.6.17.nupkg.sha512",
-    "/Users/barttynior/.nuget/packages/sixlabors.imagesharp/3.1.10/sixlabors.imagesharp.3.1.10.nupkg.sha512",
+    "/Users/barttynior/.nuget/packages/sixlabors.imagesharp/3.1.11/sixlabors.imagesharp.3.1.11.nupkg.sha512",
     "/Users/barttynior/.nuget/packages/system.reflection.emit/4.7.0/system.reflection.emit.4.7.0.nupkg.sha512",
     "/Users/barttynior/.nuget/packages/tesseract/5.2.0/tesseract.5.2.0.nupkg.sha512"
   ],
